@@ -271,7 +271,9 @@ class Unet1D(Module):
         learned_sinusoidal_dim = 16,
         sinusoidal_pos_emb_theta = 10000,
         attn_dim_head = 32,
-        attn_heads = 4
+        attn_heads = 4,
+        num_types = None,         # optional: number of input types
+        type_emb_dim = None       # optional: dimension for type embedding; defaults to time_dim if not provided
     ):
         super().__init__()
 
@@ -306,6 +308,14 @@ class Unet1D(Module):
             nn.GELU(),
             nn.Linear(time_dim, time_dim)
         )
+
+        # New: Optional type embedding branch, default does nothing if num_types is None
+        self.num_types = num_types
+        if num_types is not None:
+            type_emb_dim = default(type_emb_dim, time_dim)
+            self.type_emb = nn.Embedding(num_types, type_emb_dim)
+            # if provided type embedding dimension differs from time_dim, project to time_dim
+            self.type_emb_proj = nn.Linear(type_emb_dim, time_dim) if type_emb_dim != time_dim else None
 
         resnet_block = partial(ResnetBlock, time_emb_dim = time_dim, dropout = dropout)
 
@@ -346,7 +356,7 @@ class Unet1D(Module):
         self.final_res_block = resnet_block(init_dim * 2, init_dim)
         self.final_conv = nn.Conv1d(init_dim, self.out_dim, 1)
 
-    def forward(self, x, time, x_self_cond = None):
+    def forward(self, x, time, x_self_cond = None, type_ids = None):
         if self.self_condition:
             x_self_cond = default(x_self_cond, lambda: torch.zeros_like(x))
             x = torch.cat((x_self_cond, x), dim = 1)
@@ -355,6 +365,21 @@ class Unet1D(Module):
         r = x.clone()
 
         t = self.time_mlp(time)
+
+        # type conditioning, if available
+        if exists(type_ids) and self.num_types is not None:
+            # allow scalar (int) type_ids for whole batch
+            if isinstance(type_ids, int) or (isinstance(type_ids, torch.Tensor) and type_ids.dim() == 0):
+                batch_size = x.shape[0]
+                type_ids = torch.full((batch_size,), int(type_ids), device=x.device, dtype=torch.long)
+            else:
+                type_ids = type_ids.to(x.device).long()
+
+            type_emb = self.type_emb(type_ids)
+            if exists(self.type_emb_proj):
+                type_emb = self.type_emb_proj(type_emb)
+            # ensure same shape as t: [b, time_dim]
+            t = t + type_emb
 
         h = []
 
