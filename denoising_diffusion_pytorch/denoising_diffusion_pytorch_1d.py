@@ -626,17 +626,17 @@ class GaussianDiffusion1D(Module):
         return pred_img, x_start
 
     @torch.no_grad()
-    def p_sample_loop(self, shape, return_noise = False, model_forward_kwargs: dict = dict(), use_attention=True):
+    def p_sample_loop(self, shape, return_noise=False, model_forward_kwargs=dict(), num_steps_without_attention=0):
         batch, device = shape[0], self.betas.device
-
         noise = torch.randn(shape, device=device)
-        img = noise 
-
+        img = noise
         x_start = None
-
-        for t in tqdm(reversed(range(0, self.num_timesteps)), desc = 'sampling loop time step', total = self.num_timesteps):
+        total_steps = self.num_timesteps
+        for i, t in enumerate(reversed(range(0, total_steps))):
             self_cond = x_start if self.self_condition else None
-            img, x_start = self.p_sample(img, t, self_cond, model_forward_kwargs = model_forward_kwargs, use_attention=use_attention)
+            # Use attention only in the last num_steps_without_attention steps
+            use_attention = (i >= total_steps - num_steps_without_attention)
+            img, x_start = self.p_sample(img, t, self_cond, model_forward_kwargs=model_forward_kwargs, use_attention=use_attention)
 
         img = self.unnormalize(img)
 
@@ -687,12 +687,10 @@ class GaussianDiffusion1D(Module):
         return img, noise
 
     @torch.no_grad()
-    def sample(self, batch_size = 16, return_noise = False, model_forward_kwargs: dict = dict(), use_attention=True):
+    def sample(self, batch_size = 16, return_noise = False, model_forward_kwargs: dict = dict(), num_steps_without_attention=0):
         seq_length, channels = self.seq_length, self.channels
-        sample_fn = self.p_sample_loop if not self.is_ddim_sampling else self.ddim_sample
-
         shape = (batch_size, channels, seq_length) if self.channel_first else (batch_size, seq_length, channels)
-        return sample_fn(shape, return_noise = return_noise, model_forward_kwargs = model_forward_kwargs, use_attention=use_attention)
+        return self.p_sample_loop(shape, return_noise = return_noise, model_forward_kwargs = model_forward_kwargs, num_steps_without_attention=num_steps_without_attention)
 
     def p_losses(self, x_start, t, noise = None, model_forward_kwargs: dict = dict(), return_reduced_loss = True, use_attention=True):
         b = x_start.shape[0]
