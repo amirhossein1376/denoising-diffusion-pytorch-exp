@@ -794,7 +794,7 @@ class GaussianDiffusion1D(Module):
         if num_steps_without_attention is None:
             num_steps_without_attention = self.num_steps_without_attention_train
         # Enable attention only after num_steps_without_attention steps
-        use_attention = (t >= num_steps_without_attention)
+        use_attention = (t < self.num_timesteps - num_steps_without_attention)
         return self.p_losses(img, t, *args, **kwargs, use_attention=use_attention)
 
 # trainer class
