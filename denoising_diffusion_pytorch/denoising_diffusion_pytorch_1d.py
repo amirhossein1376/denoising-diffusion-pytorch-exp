@@ -741,6 +741,14 @@ class GaussianDiffusion1D(Module):
 
         return loss.mean()
 
+    @autocast('cuda', enabled = False)
+    def q_sample(self, x_start, t, noise=None):
+        noise = default(noise, lambda: torch.randn_like(x_start))
+        return (
+            extract(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start +
+            extract(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * noise
+        )
+
     def forward(self, img, *args, num_steps_without_attention=0, **kwargs):
         b, n, device, seq_length = img.shape[0], img.shape[self.seq_index], img.device, self.seq_length
         assert n == seq_length, f'seq length must be {seq_length}'
