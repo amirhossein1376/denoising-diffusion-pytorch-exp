@@ -785,16 +785,14 @@ class GaussianDiffusion1D(Module):
             extract(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * noise
         )
 
-    def forward(self, img, *args, num_steps_without_attention=None, **kwargs):
+    def forward(self, img, *args, **kwargs):
         b, n, device, seq_length = img.shape[0], img.shape[self.seq_index], img.device, self.seq_length
         assert n == seq_length, f'seq length must be {seq_length}'
         t = torch.randint(0, self.num_timesteps, (b,), device=device).long()
         img = self.normalize(img)
-        # Don't use num_steps_without_attention_train if not explicitly provided
-        if num_steps_without_attention is None:
-            num_steps_without_attention = 0
+
         # Enable attention only after num_steps_without_attention steps
-        use_attention = (t < self.num_timesteps - num_steps_without_attention)
+        use_attention = (t < self.num_timesteps - self.num_steps_without_attention_train)
         return self.p_losses(img, t, *args, **kwargs, use_attention=use_attention)
 
 # trainer class
