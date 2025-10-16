@@ -741,6 +741,15 @@ class GaussianDiffusion1D(Module):
 
         return loss.mean()
 
+    def forward(self, img, *args, num_steps_without_attention=0, **kwargs):
+        b, n, device, seq_length = img.shape[0], img.shape[self.seq_index], img.device, self.seq_length
+        assert n == seq_length, f'seq length must be {seq_length}'
+        t = torch.randint(0, self.num_timesteps, (b,), device=device).long()
+        img = self.normalize(img)
+        # If num_steps_without_attention > 0, disable attention during training (for ablation)
+        use_attention = (num_steps_without_attention == 0)
+        return self.p_losses(img, t, *args, **kwargs, use_attention=use_attention)
+
 # trainer class
 
 class Trainer1D(object):
