@@ -790,9 +790,9 @@ class GaussianDiffusion1D(Module):
         assert n == seq_length, f'seq length must be {seq_length}'
         t = torch.randint(0, self.num_timesteps, (b,), device=device).long()
         img = self.normalize(img)
-        # Use num_steps_without_attention_train if not explicitly provided
+        # Don't use num_steps_without_attention_train if not explicitly provided
         if num_steps_without_attention is None:
-            num_steps_without_attention = self.num_steps_without_attention_train
+            num_steps_without_attention = 0
         # Enable attention only after num_steps_without_attention steps
         use_attention = (t < self.num_timesteps - num_steps_without_attention)
         return self.p_losses(img, t, *args, **kwargs, use_attention=use_attention)
