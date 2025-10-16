@@ -115,9 +115,9 @@ class PreNorm(Module):
         self.fn = fn
         self.norm = RMSNorm(dim)
 
-    def forward(self, x):
+    def forward(self, x, *args, **kwargs):
         x = self.norm(x)
-        return self.fn(x)
+        return self.fn(x, *args, **kwargs)
 
 # sinusoidal positional embeds
 
