@@ -793,7 +793,6 @@ class GaussianDiffusion1D(Module):
 
         # Enable attention only after num_steps_without_attention steps
         use_attention = (t <= self.num_timesteps - self.num_steps_without_attention_train)
-        print("Attention used in this batch:", use_attention.sum().item(), "out of", b)
         return self.p_losses(img, t, *args, **kwargs, use_attention=use_attention)
 
 # trainer class

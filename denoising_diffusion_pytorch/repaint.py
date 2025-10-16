@@ -232,6 +232,46 @@ class LinearAttention(Module):
         out = torch.einsum('b h d e, b h d n -> b h e n', context, q)
         out = rearrange(out, 'b h c (x y) -> b (h c) x y', h = self.heads, x = h, y = w)
         return self.to_out(out)
+    def forward(self, x, use_attention=True):
+        # supports per-sample mask tensor (b,) or bool
+        b, c, h, w = x.shape
+
+        x = self.norm(x)
+
+        qkv = self.to_qkv(x).chunk(3, dim = 1)
+        q, k, v = map(lambda t: rearrange(t, 'b (h c) x y -> b h c (x y)', h = self.heads), qkv)
+
+        mk, mv = map(lambda t: repeat(t, 'h c n -> b h c n', b = b), self.mem_kv)
+        k, v = map(partial(torch.cat, dim = -1), ((mk, k), (mv, v)))
+
+        if isinstance(use_attention, torch.Tensor):
+            q = q.softmax(dim = -2)
+            k = k.softmax(dim = -1)
+
+            q = q * self.scale
+
+            context = torch.einsum('b h d n, b h e n -> b h d e', k, v)
+
+            out = torch.einsum('b h d e, b h d n -> b h e n', context, q)
+            out = rearrange(out, 'b h c (x y) -> b (h c) x y', h = self.heads, x = h, y = w)
+            attn_out = self.to_out(out)
+
+            mask = use_attention.view(-1, *([1] * (x.dim() - 1))).to(x.dtype)
+            return attn_out * mask + x * (1 - mask)
+        else:
+            if not use_attention:
+                return x
+
+            q = q.softmax(dim = -2)
+            k = k.softmax(dim = -1)
+
+            q = q * self.scale
+
+            context = torch.einsum('b h d n, b h e n -> b h d e', k, v)
+
+            out = torch.einsum('b h d e, b h d n -> b h e n', context, q)
+            out = rearrange(out, 'b h c (x y) -> b (h c) x y', h = self.heads, x = h, y = w)
+            return self.to_out(out)
 
 class Attention(Module):
     def __init__(
@@ -268,6 +308,33 @@ class Attention(Module):
 
         out = rearrange(out, 'b h (x y) d -> b (h d) x y', x = h, y = w)
         return self.to_out(out)
+    def forward(self, x, use_attention=True):
+        b, c, h, w = x.shape
+
+        x = self.norm(x)
+
+        qkv = self.to_qkv(x).chunk(3, dim = 1)
+        q, k, v = map(lambda t: rearrange(t, 'b (h c) x y -> b h (x y) c', h = self.heads), qkv)
+
+        mk, mv = map(lambda t: repeat(t, 'h n d -> b h n d', b = b), self.mem_kv)
+        k, v = map(partial(torch.cat, dim = -2), ((mk, k), (mv, v)))
+
+        if isinstance(use_attention, torch.Tensor):
+            out = self.attend(q, k, v)
+
+            out = rearrange(out, 'b h (x y) d -> b (h d) x y', x = h, y = w)
+            attn_out = self.to_out(out)
+
+            mask = use_attention.view(-1, *([1] * (x.dim() - 1))).to(x.dtype)
+            return attn_out * mask + x * (1 - mask)
+        else:
+            if not use_attention:
+                return x
+
+            out = self.attend(q, k, v)
+
+            out = rearrange(out, 'b h (x y) d -> b (h d) x y', x = h, y = w)
+            return self.to_out(out)
 
 # model
 
