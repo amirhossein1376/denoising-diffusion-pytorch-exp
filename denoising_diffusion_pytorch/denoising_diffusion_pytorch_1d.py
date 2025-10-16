@@ -442,32 +442,30 @@ def cosine_beta_schedule(timesteps, s = 0.008):
 
 class GaussianDiffusion1D(Module):
     def __init__(
-        self,
-        model,
-        *,
-        seq_length,
-        timesteps = 1000,
-        sampling_timesteps = None,
-        objective = 'pred_noise',
-        beta_schedule = 'cosine',
-        ddim_sampling_eta = 0.,
-        auto_normalize = True,
-        channels = None,
-        self_condition = None,
-        channel_first = True
-    ):
+            self,
+            model,
+            *,
+            seq_length,
+            timesteps=1000,
+            sampling_timesteps=None,
+            objective='pred_noise',
+            beta_schedule='cosine',
+            ddim_sampling_eta=0.,
+            auto_normalize=True,
+            channels=None,
+            self_condition=None,
+            channel_first=True,
+            num_steps_without_attention_train=0
+        ):
         super().__init__()
         self.model = model
         self.channels = default(channels, lambda: self.model.channels)
         self.self_condition = default(self_condition, lambda: self.model.self_condition)
-
         self.channel_first = channel_first
         self.seq_index = -2 if not channel_first else -1
-
         self.seq_length = seq_length
-
         self.objective = objective
-
+        self.num_steps_without_attention_train = num_steps_without_attention_train
         assert objective in {'pred_noise', 'pred_x0', 'pred_v'}, 'objective must be either pred_noise (predict noise) or pred_x0 (predict image start) or pred_v (predict v [v-parameterization as defined in appendix D of progressive distillation paper, used in imagen-video successfully])'
 
         if beta_schedule == 'linear':
@@ -749,13 +747,16 @@ class GaussianDiffusion1D(Module):
             extract(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * noise
         )
 
-    def forward(self, img, *args, num_steps_without_attention=0, **kwargs):
+    def forward(self, img, *args, num_steps_without_attention=None, **kwargs):
         b, n, device, seq_length = img.shape[0], img.shape[self.seq_index], img.device, self.seq_length
         assert n == seq_length, f'seq length must be {seq_length}'
         t = torch.randint(0, self.num_timesteps, (b,), device=device).long()
         img = self.normalize(img)
-        # If num_steps_without_attention > 0, disable attention during training (for ablation)
-        use_attention = (num_steps_without_attention == 0)
+        # Use num_steps_without_attention_train if not explicitly provided
+        if num_steps_without_attention is None:
+            num_steps_without_attention = self.num_steps_without_attention_train
+        # Enable attention only after num_steps_without_attention steps
+        use_attention = (t >= num_steps_without_attention)
         return self.p_losses(img, t, *args, **kwargs, use_attention=use_attention)
 
 # trainer class
