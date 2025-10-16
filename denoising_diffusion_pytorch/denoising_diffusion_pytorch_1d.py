@@ -635,7 +635,7 @@ class GaussianDiffusion1D(Module):
         for i, t in enumerate(reversed(range(0, total_steps))):
             self_cond = x_start if self.self_condition else None
             # Use attention only in the last num_steps_without_attention steps
-            use_attention = (i >= total_steps - num_steps_without_attention)
+            use_attention = (i >= num_steps_without_attention)
             img, x_start = self.p_sample(img, t, self_cond, model_forward_kwargs=model_forward_kwargs, use_attention=use_attention)
 
         img = self.unnormalize(img)
