@@ -213,7 +213,9 @@ class LinearAttention(Module):
             RMSNorm(dim)
         )
 
-    def forward(self, x):
+    def forward(self, x, use_attention=True):
+        if not use_attention:
+            return x
         b, c, n = x.shape
         qkv = self.to_qkv(x).chunk(3, dim = 1)
         q, k, v = map(lambda t: rearrange(t, 'b (h c) n -> b h c n', h = self.heads), qkv)
@@ -239,7 +241,9 @@ class Attention(Module):
         self.to_qkv = nn.Conv1d(dim, hidden_dim * 3, 1, bias = False)
         self.to_out = nn.Conv1d(hidden_dim, dim, 1)
 
-    def forward(self, x):
+    def forward(self, x, use_attention=True):
+        if not use_attention:
+            return x
         b, c, n = x.shape
         qkv = self.to_qkv(x).chunk(3, dim = 1)
         q, k, v = map(lambda t: rearrange(t, 'b (h c) n -> b h c n', h = self.heads), qkv)
@@ -356,7 +360,7 @@ class Unet1D(Module):
         self.final_res_block = resnet_block(init_dim * 2, init_dim)
         self.final_conv = nn.Conv1d(init_dim, self.out_dim, 1)
 
-    def forward(self, x, time, x_self_cond = None, type_ids = None):
+    def forward(self, x, time, x_self_cond = None, type_ids = None, use_attention=True):
         if self.self_condition:
             x_self_cond = default(x_self_cond, lambda: torch.zeros_like(x))
             x = torch.cat((x_self_cond, x), dim = 1)
@@ -388,13 +392,13 @@ class Unet1D(Module):
             h.append(x)
 
             x = block2(x, t)
-            x = attn(x)
+            x = attn(x, use_attention=use_attention)
             h.append(x)
 
             x = downsample(x)
 
         x = self.mid_block1(x, t)
-        x = self.mid_attn(x)
+        x = self.mid_attn(x, use_attention=use_attention)
         x = self.mid_block2(x, t)
 
         for block1, block2, attn, upsample in self.ups:
@@ -403,8 +407,7 @@ class Unet1D(Module):
 
             x = torch.cat((x, h.pop()), dim = 1)
             x = block2(x, t)
-            x = attn(x)
-
+            x = attn(x, use_attention=use_attention)
             x = upsample(x)
 
         x = torch.cat((x, r), dim = 1)
@@ -614,16 +617,16 @@ class GaussianDiffusion1D(Module):
         return model_mean, posterior_variance, posterior_log_variance, x_start
 
     @torch.no_grad()
-    def p_sample(self, x, t: int, x_self_cond = None, clip_denoised = True, model_forward_kwargs: dict = dict()):
+    def p_sample(self, x, t: int, x_self_cond = None, clip_denoised = True, model_forward_kwargs: dict = dict(), use_attention=True):
         b, *_, device = *x.shape, x.device
         batched_times = torch.full((b,), t, device = x.device, dtype = torch.long)
-        model_mean, _, model_log_variance, x_start = self.p_mean_variance(x = x, t = batched_times, x_self_cond = x_self_cond, clip_denoised = clip_denoised, model_forward_kwargs = model_forward_kwargs)
+        model_mean, _, model_log_variance, x_start = self.p_mean_variance(x = x, t = batched_times, x_self_cond = x_self_cond, clip_denoised = clip_denoised, model_forward_kwargs = model_forward_kwargs, use_attention=use_attention)
         noise = torch.randn_like(x) if t > 0 else 0. # no noise if t == 0
         pred_img = model_mean + (0.5 * model_log_variance).exp() * noise
         return pred_img, x_start
 
     @torch.no_grad()
-    def p_sample_loop(self, shape, return_noise = False, model_forward_kwargs: dict = dict()):
+    def p_sample_loop(self, shape, return_noise = False, model_forward_kwargs: dict = dict(), use_attention=True):
         batch, device = shape[0], self.betas.device
 
         noise = torch.randn(shape, device=device)
@@ -633,7 +636,7 @@ class GaussianDiffusion1D(Module):
 
         for t in tqdm(reversed(range(0, self.num_timesteps)), desc = 'sampling loop time step', total = self.num_timesteps):
             self_cond = x_start if self.self_condition else None
-            img, x_start = self.p_sample(img, t, self_cond, model_forward_kwargs = model_forward_kwargs)
+            img, x_start = self.p_sample(img, t, self_cond, model_forward_kwargs = model_forward_kwargs, use_attention=use_attention)
 
         img = self.unnormalize(img)
 
@@ -643,7 +646,7 @@ class GaussianDiffusion1D(Module):
         return img, noise
 
     @torch.no_grad()
-    def ddim_sample(self, shape, clip_denoised = True, model_forward_kwargs: dict = dict(), return_noise = False):
+    def ddim_sample(self, shape, clip_denoised = True, model_forward_kwargs: dict = dict(), return_noise = False, use_attention=True):
         batch, device, total_timesteps, sampling_timesteps, eta, objective = shape[0], self.betas.device, self.num_timesteps, self.sampling_timesteps, self.ddim_sampling_eta, self.objective
 
         times = torch.linspace(-1, total_timesteps - 1, steps=sampling_timesteps + 1)   # [-1, 0, 1, 2, ..., T-1] when sampling_timesteps == total_timesteps
@@ -658,7 +661,7 @@ class GaussianDiffusion1D(Module):
         for time, time_next in tqdm(time_pairs, desc = 'sampling loop time step'):
             time_cond = torch.full((batch,), time, device=device, dtype=torch.long)
             self_cond = x_start if self.self_condition else None
-            pred_noise, x_start, *_ = self.model_predictions(img, time_cond, self_cond, clip_x_start = clip_denoised, model_forward_kwargs = model_forward_kwargs)
+            pred_noise, x_start, *_ = self.model_predictions(img, time_cond, self_cond, clip_x_start = clip_denoised, model_forward_kwargs = model_forward_kwargs, use_attention=use_attention)
 
             if time_next < 0:
                 img = x_start
@@ -684,43 +687,14 @@ class GaussianDiffusion1D(Module):
         return img, noise
 
     @torch.no_grad()
-    def sample(self, batch_size = 16, return_noise = False, model_forward_kwargs: dict = dict()):
+    def sample(self, batch_size = 16, return_noise = False, model_forward_kwargs: dict = dict(), use_attention=True):
         seq_length, channels = self.seq_length, self.channels
         sample_fn = self.p_sample_loop if not self.is_ddim_sampling else self.ddim_sample
 
         shape = (batch_size, channels, seq_length) if self.channel_first else (batch_size, seq_length, channels)
-        return sample_fn(shape, return_noise = return_noise, model_forward_kwargs = model_forward_kwargs)
+        return sample_fn(shape, return_noise = return_noise, model_forward_kwargs = model_forward_kwargs, use_attention=use_attention)
 
-    @torch.no_grad()
-    def interpolate(self, x1, x2, t = None, lam = 0.5):
-        b, *_, device = *x1.shape, x1.device
-        t = default(t, self.num_timesteps - 1)
-
-        assert x1.shape == x2.shape
-
-        t_batched = torch.full((b,), t, device = device)
-        xt1, xt2 = map(lambda x: self.q_sample(x, t = t_batched), (x1, x2))
-
-        img = (1 - lam) * xt1 + lam * xt2
-
-        x_start = None
-
-        for i in tqdm(reversed(range(0, t)), desc = 'interpolation sample time step', total = t):
-            self_cond = x_start if self.self_condition else None
-            img, x_start = self.p_sample(img, i, self_cond)
-
-        return img
-
-    @autocast('cuda', enabled = False)
-    def q_sample(self, x_start, t, noise=None):
-        noise = default(noise, lambda: torch.randn_like(x_start))
-
-        return (
-            extract(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start +
-            extract(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * noise
-        )
-
-    def p_losses(self, x_start, t, noise = None, model_forward_kwargs: dict = dict(), return_reduced_loss = True):
+    def p_losses(self, x_start, t, noise = None, model_forward_kwargs: dict = dict(), return_reduced_loss = True, use_attention=True):
         b = x_start.shape[0]
         n = x_start.shape[self.seq_index]
 
@@ -746,7 +720,7 @@ class GaussianDiffusion1D(Module):
 
         # predict and take gradient step
 
-        model_out = self.model(x, t, **model_forward_kwargs)
+        model_out = self.model(x, t, use_attention=use_attention, **model_forward_kwargs)
 
         if self.objective == 'pred_noise':
             target = noise
@@ -768,15 +742,6 @@ class GaussianDiffusion1D(Module):
         loss = loss * extract(self.loss_weight, t, loss.shape)
 
         return loss.mean()
-
-    def forward(self, img, *args, **kwargs):
-        b, n, device, seq_length, = img.shape[0], img.shape[self.seq_index], img.device, self.seq_length
-
-        assert n == seq_length, f'seq length must be {seq_length}'
-        t = torch.randint(0, self.num_timesteps, (b,), device=device).long()
-
-        img = self.normalize(img)
-        return self.p_losses(img, t, *args, **kwargs)
 
 # trainer class
 
