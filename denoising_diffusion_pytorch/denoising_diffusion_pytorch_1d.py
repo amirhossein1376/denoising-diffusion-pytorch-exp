@@ -573,12 +573,12 @@ class GaussianDiffusion1D(Module):
         posterior_log_variance_clipped = extract(self.posterior_log_variance_clipped, t, x_t.shape)
         return posterior_mean, posterior_variance, posterior_log_variance_clipped
 
-    def model_predictions(self, x, t, x_self_cond = None, clip_x_start = False, rederive_pred_noise = False, model_forward_kwargs: dict = dict()):
+    def model_predictions(self, x, t, x_self_cond = None, clip_x_start = False, rederive_pred_noise = False, model_forward_kwargs: dict = dict(), use_attention=True):
 
         if exists(x_self_cond):
             model_forward_kwargs = {**model_forward_kwargs, 'self_cond': x_self_cond}
 
-        model_output = self.model(x, t, **model_forward_kwargs)
+        model_output = self.model(x, t, use_attention=use_attention, **model_forward_kwargs)
         maybe_clip = partial(torch.clamp, min = -1., max = 1.) if clip_x_start else identity
 
         if self.objective == 'pred_noise':
@@ -602,12 +602,12 @@ class GaussianDiffusion1D(Module):
 
         return ModelPrediction(pred_noise, x_start)
 
-    def p_mean_variance(self, x, t, x_self_cond = None, clip_denoised = True, model_forward_kwargs: dict = dict()):
+    def p_mean_variance(self, x, t, x_self_cond = None, clip_denoised = True, model_forward_kwargs: dict = dict(), use_attention=True):
 
         if exists(x_self_cond):
             model_forward_kwargs = {**model_forward_kwargs, 'self_cond': x_self_cond}
 
-        preds = self.model_predictions(x, t, **model_forward_kwargs)
+        preds = self.model_predictions(x, t, use_attention=use_attention, **model_forward_kwargs)
         x_start = preds.pred_x_start
 
         if clip_denoised:
