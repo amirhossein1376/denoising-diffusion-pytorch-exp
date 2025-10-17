@@ -216,7 +216,6 @@ class LinearAttention(Module):
     def forward(self, x, use_attention=True):
         # support per-sample mask: use_attention can be bool or Tensor[b]
         if isinstance(use_attention, torch.Tensor):
-            print("Summary of use_attention in this batch:", use_attention.sum().item(), "out of", x.shape[0])
             # compute attention output for full batch
             b, c, n = x.shape
             qkv = self.to_qkv(x).chunk(3, dim = 1)
