@@ -773,7 +773,7 @@ class GaussianDiffusion1D(Module):
         if self.num_steps_without_attention_train == 0:
             use_attention = True
         else:
-            use_attention = (t <= self.num_timesteps - self.num_steps_without_attention_train)
+            use_attention = (t < self.num_timesteps - self.num_steps_without_attention_train)
         return self.p_losses(img, t, *args, **kwargs, use_attention=use_attention)
 
 # trainer class
